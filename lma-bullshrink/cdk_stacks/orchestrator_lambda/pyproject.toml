@@ -1,0 +1,12 @@
+[project]
+name = "orchestrator-lambda"
+version = "0.1.0"
+description = ""
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aws-lambda-powertools>=3.5.0",
+    "boto3>=1.36.10",
+    "pydantic>=2.10.6",
+    "pydantic-settings>=2.7.1",
+]

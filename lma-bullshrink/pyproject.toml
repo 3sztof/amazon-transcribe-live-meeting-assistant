@@ -1,0 +1,22 @@
+[project]
+name = "lma-bullshrink"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aws-cdk-aws-lambda-python-alpha>=2.177.0a0",
+    "aws-cdk-lib>=2.177.0",
+]
+
+[tool.uv.workspace]
+members = ["cdk_stacks/email_fanout_lambda"]
+
+[dependency-groups]
+dev = [
+    "aws-lambda-powertools>=3.5.0",
+    "boto3>=1.36.10",
+    "jinja2>=3.1.5",
+    "pydantic>=2.10.6",
+    "pydantic-settings>=2.7.1",
+]
