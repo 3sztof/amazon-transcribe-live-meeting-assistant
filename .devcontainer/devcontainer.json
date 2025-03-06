@@ -1,0 +1,74 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/ubuntu
+{
+	"name": "Ubuntu",
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	"image": "mcr.microsoft.com/devcontainers/base:jammy",
+	"features": {
+		"ghcr.io/devcontainers/features/aws-cli:1": {},
+		"ghcr.io/audacioustux/devcontainers/aws-sam-cli:1": {},
+		"ghcr.io/devcontainers-extra/features/aws-cdk:2": {},
+		"ghcr.io/devcontainers/features/docker-in-docker:2": {
+				"version": "latest",
+				"enableNonRootDocker": "true",
+				"moby": "true"
+		},
+		"ghcr.io/phil-bell/devcontainer-features/antigen:1": {
+			"theme": "romkatv/powerlevel10k",
+			"bundles": [
+				"zsh-users/zsh-syntax-highlighting",
+				"zsh-users/zsh-completions"
+			]
+    	},
+    	"ghcr.io/devcontainers-extra/features/pre-commit:2": {}
+	},
+
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	// "features": {},
+
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	// "forwardPorts": [],
+
+	// Use 'postCreateCommand' to run commands after the container is created.
+	"postCreateCommand": {
+		"install-uv": "curl -LsSf https://astral.sh/uv/install.sh | sh && . ~/.bashrc",
+		"copy-zshrc": "cp /workspaces/${localWorkspaceFolderBasename}/.devcontainer/.zshrc ~/.zshrc",
+		"copy-p10kzsh": "cp /workspaces/${localWorkspaceFolderBasename}/.devcontainer/.p10k.zsh ~/.p10k.zsh"
+	},
+
+	// Configure tool-specific properties.
+	"customizations": {
+		"vscode": {
+		"settings": {
+			"workbench.colorTheme": "Night Owl",
+			"python.pythonPath": "/workspaces/${localWorkspaceFolderBasename}/src/.venv/bin/python",
+			"python.analysis.typeCheckingMode": "strict",
+			"editor.formatOnSave": true,
+			"python.formatting.provider": "ruff",
+			"terminal.integrated.defaultProfile.linux": "zsh",
+			"terminal.integrated.profiles.linux": {
+				"zsh": {
+					"path": "/usr/bin/zsh"
+				}
+			}
+		},
+		"extensions": [
+			"ms-python.python",
+			"ms-python.vscode-pylance",
+			"ms-python.debugpy",
+			"sdras.night-owl",
+			"charliermarsh.ruff",
+			"natqe.reload",
+			"zainchen.json",
+			"dbaeumer.vscode-eslint",
+			"tamasfe.even-better-toml",
+			"boto3typed.boto3-ide",
+			"amazonwebservices.aws-toolkit-vscode",
+			"amazonwebservices.amazon-q-vscode"
+		]
+		}
+	}
+
+	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+	// "remoteUser": "root"
+}
