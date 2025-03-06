@@ -10,3 +10,5 @@
 samconfig.toml
 .checksum
 .commit-hash
+
+.vscode/
