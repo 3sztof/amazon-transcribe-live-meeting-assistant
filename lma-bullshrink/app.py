@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from aws_cdk import App, Environment, CfnParameter
-from cdk_stacks.app_stack import BullShrinkAppStack
+from cdk_infrastructure.app_stack import BullShrinkAppStack
 
 app = App()
 

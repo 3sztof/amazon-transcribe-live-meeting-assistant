@@ -7,6 +7,7 @@ class OrchestratorLambdaEnv(BaseSettings):
     scoring_lambda_name: str = Field(default=...)
     agenda_alignment_lambda_name: str = Field(default=...)
     email_fanout_lambda_name: str = Field(default=...)
+    default_agenda: str = Field(default="")
 
     class Config:
         extra = "ignore"
@@ -20,3 +21,4 @@ class ParallelFunctionCallConfig(BaseModel):
 class InputEvent(BaseModel):
     CallId: str
     CallSummaryText: str
+    AgendaText: str = ""

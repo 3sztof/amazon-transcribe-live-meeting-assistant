@@ -18,17 +18,9 @@ lambda_client = boto3.client("lambda", config=lambda_client_config)
 
 env_variables = OrchestratorLambdaEnv()
 
-AGENDA_TEXT = """
-Agenda:
-1. Sprint  Progress Update (3 mins)
-2. Technical  Blockers Discussion (5 mins)
-3. Upcoming  Release Planning (5 mins)
-4. AOB  - Any Other Business (2 mins)
-""".strip()  # TODO(feature): figure out how to determine meeting agenda / pull it from LMA
-
 
 def prepare_lambda_inputs(
-    call_id: str, transcription_bucket_uri: str
+    call_id: str, transcription_bucket_uri: str, agenda_text: str
 ) -> list[ParallelFunctionCallConfig]:
     """
     Prepare input payloads for Lambda functions
@@ -36,25 +28,35 @@ def prepare_lambda_inputs(
     Args:
         call_id: The call ID
         transcription_bucket_uri: The S3 bucket URI
+        agenda_text: The meeting agenda text
     Returns:
         Dict containing prepared inputs for each Lambda function
     """
     base_input = {
-        "agenda_text": AGENDA_TEXT,
+        "agenda_text": agenda_text,
         "transcription_path": f"{transcription_bucket_uri}/{call_id}-TRANSCRIPT.txt",
         "callId": call_id,
     }
 
-    return [
+    functions = [
         ParallelFunctionCallConfig(
             function_name=env_variables.scoring_lambda_name,
             input_event=base_input.copy(),
-        ),
-        ParallelFunctionCallConfig(
-            function_name=env_variables.agenda_alignment_lambda_name,
-            input_event=base_input.copy(),
-        ),
+        )
     ]
+    
+    # Only run agenda alignment if agenda text is provided
+    if agenda_text.strip():
+        functions.append(
+            ParallelFunctionCallConfig(
+                function_name=env_variables.agenda_alignment_lambda_name,
+                input_event=base_input.copy(),
+            )
+        )
+    else:
+        logger.info("No agenda text provided, skipping agenda alignment function")
+        
+    return functions
 
 
 def handle_lambda_invocation(function_name: str, input_event: Dict) -> Dict:
@@ -112,34 +114,89 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Main Lambda handler function
 
     Args:
-        event: Lambda event
+        event: Lambda event from LMA completion notification
         context: Lambda context
     Returns:
         Dict containing execution results
     """
     logger.info(f"Input event: {json.dumps(event)}")
 
-    input_event = InputEvent(**event)
+    # Default agenda to use if none provided
+    agenda_text = env_variables.default_agenda
+    
+    # Handle S3 trigger events from LMA
+    if event.get("Records") and event["Records"][0].get("eventSource") == "aws:s3":
+        s3_event = event["Records"][0]["s3"]
+        bucket_name = s3_event["bucket"]["name"]
+        object_key = s3_event["object"]["key"]
+        
+        # Extract call_id from object key (assuming format like "callId-TRANSCRIPT.txt")
+        call_id = object_key.split("-TRANSCRIPT.txt")[0]
+        
+        # Download and parse the summary file if available
+        s3_client = boto3.client("s3")
+        try:
+            summary_key = f"{call_id}-SUMMARY.txt"
+            summary_response = s3_client.get_object(Bucket=bucket_name, Key=summary_key)
+            meeting_summary_text = summary_response["Body"].read().decode("utf-8")
+            try:
+                meeting_summary = json.loads(meeting_summary_text).get(
+                    "SUMMARY", "Could not parse the meeting summary."
+                )
+            except json.JSONDecodeError:
+                meeting_summary = meeting_summary_text
+        except Exception as e:
+            logger.warning(f"Could not retrieve summary for {call_id}: {str(e)}")
+            meeting_summary = "No summary available"
+            
+        # Check if there's an agenda file available
+        try:
+            agenda_key = f"{call_id}-AGENDA.txt"
+            agenda_response = s3_client.get_object(Bucket=bucket_name, Key=agenda_key)
+            agenda_text = agenda_response["Body"].read().decode("utf-8")
+            logger.info(f"Retrieved agenda from S3: {agenda_text}")
+        except Exception as e:
+            logger.warning(f"Could not retrieve agenda file for {call_id}: {str(e)}")
+            # Keep the default agenda
+    
+    # Handle direct invocation with CallId and CallSummaryText
+    else:
+        try:
+            input_event = InputEvent(**event)
+            call_id = sanitize_key_prefix(raw_call_id=input_event.CallId)
+            meeting_summary = json.loads(input_event.CallSummaryText).get(
+                "SUMMARY", "Could not parse the meeting summary."
+            )
+            bucket_name = env_variables.call_transcripts_bucket_name
+            
+            # Check if agenda is provided in the input event
+            if input_event.AgendaText:
+                agenda_text = input_event.AgendaText
+                logger.info(f"Using agenda from input event: {agenda_text}")
+        except Exception as e:
+            logger.error(f"Error parsing direct invocation event: {str(e)}")
+            return {
+                "statusCode": 400,
+                "body": {"message": f"Invalid input event format: {str(e)}"},
+            }
 
-    call_transcripts_bucket_uri = f"s3://{env_variables.call_transcripts_bucket_name}"
-
-    call_id = sanitize_key_prefix(raw_call_id=input_event.CallId)
-    meeting_summary = json.loads(input_event.CallSummaryText).get(
-        "SUMMARY", "Could not parse the meeting summary."
-    )
-    # TODO(feature): pull action points from LMA, put them in the meeting report email
-
+    call_transcripts_bucket_uri = f"s3://{bucket_name}"
     logger.info(f"Meeting (ID: {call_id}) summary: {meeting_summary}")
 
-    parallel_function_call_inputs = prepare_lambda_inputs(
+    parallel_function_call_configs = prepare_lambda_inputs(
         call_id=call_id,
         transcription_bucket_uri=call_transcripts_bucket_uri,
+        agenda_text=agenda_text,
     )
 
-    time.sleep(30)
+    # Convert to the format expected by invoke_functions_parallel
+    function_calls = {
+        config.function_name: config.input_event 
+        for config in parallel_function_call_configs
+    }
 
     # Execute functions in parallel
-    responses = invoke_functions_parallel(parallel_function_call_inputs)
+    responses = invoke_functions_parallel(function_calls)
 
     # Check for any failed invocations
     errors = {name: resp for name, resp in responses.items() if "error" in resp}
@@ -153,19 +210,19 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     logger.info("All functions completed successfully")
     logger.info(f"Responses: {json.dumps(responses)}")
 
-    # Email
+    # Add meeting summary to responses for email
     responses["meeting_summary"] = meeting_summary
 
+    # Invoke email fanout Lambda
     lambda_client = boto3.client("lambda")
-
-    # Invoke the Lambda function
     email_response = lambda_client.invoke(
-        FunctionName=EMAIL_FANOUT_LAMBDA,
+        FunctionName=env_variables.email_fanout_lambda_name,
         InvocationType="RequestResponse",
         Payload=json.dumps(responses),
     )
 
-    responses[EMAIL_FANOUT_LAMBDA] = email_response.get("body")
+    response_payload = json.loads(email_response["Payload"].read().decode("utf-8"))
+    responses[env_variables.email_fanout_lambda_name] = response_payload
 
     return {
         "statusCode": 200,

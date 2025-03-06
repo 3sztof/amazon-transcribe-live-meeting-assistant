@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [tool.uv.workspace]
-members = ["cdk_stacks/email_fanout_lambda"]
+members = []
 
 [dependency-groups]
 dev = [
